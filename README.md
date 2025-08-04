@@ -1,5 +1,5 @@
 # dataquieR
-Converting XLSX into ODM
+The “dataquieR format” is a format for storing metadata for controlling automatic data quality assessments with the R package dataquieR.
 
 ## Infos
 Missinglist-Tabellen werden als Codelists hinter allen andern Codelists angehängt.
