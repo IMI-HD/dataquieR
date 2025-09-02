@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-
+import argparse
 import pandas as pd
 import numpy as np
 from lxml import etree as ET
@@ -756,7 +756,7 @@ Second dictionary is based on the entries in the column STUDY_SEGMENT => Formula
 """
 
 
-def sort_all_lines_and_columns(df, first_sheet_name, all_sheets, file_name):
+def sort_all_lines_and_columns(df, first_sheet_name, all_sheets, file_name, force_single_odm):
     # file_name
     name = file_name.split(".")[0]
 
@@ -802,8 +802,8 @@ def sort_all_lines_and_columns(df, first_sheet_name, all_sheets, file_name):
         save = list(row["HIERARCHY"].split("|"))
         string_save = save[0]
         for i in save:
-            sring_save = string_save + "_" + str(i)
-        studyevent = sring_save
+            string_save = string_save + "_" + str(i)
+        studyevent = string_save
         # dce
         if pd.notna(row["DCE"]):
             studyevent = row["DCE"]
@@ -811,8 +811,8 @@ def sort_all_lines_and_columns(df, first_sheet_name, all_sheets, file_name):
         save = list(row["HIERARCHY"].split("|"))
         string_save = save[0]
         for i in save:
-            sring_save = string_save + "_" + str(i)
-        study_segment = sring_save
+            string_save = string_save + "_" + str(i)
+        study_segment = string_save
         # study_segment
         if pd.notna(row["STUDY_SEGMENT"]):
             study_segment = row["STUDY_SEGMENT"]
@@ -851,44 +851,45 @@ def sort_all_lines_and_columns(df, first_sheet_name, all_sheets, file_name):
                 if pd.notna(english) or pd.notna(german):
                     CodeLists.append(CodeList(count_cl, varname, english, german))
                     count_cl += 1
-
-    break_boolean = False
-    # minimum of the hierarchy is 2 because 0 and 1 are SHIP and SHIPx (required)
-    h = 2
-    while not break_boolean:
-        b = False
-        # check the number of items and split by hierarchy
-        hierarchy = []
-        for key, group in varname_groups.items():
-            length = 0
-            for _, items in group.items():
-                length = length + len(items)
-                if length > 5700:
-                    b = True
-                    hierarchy.append(key)
-                    break
-        # new sort by hierarchy
-        if hierarchy:
-            if h == 2:
-                varname_groups = sort_new_hierarchy(
-                    varname_groups,
-                    hierarchy,
-                    df.columns.get_loc("STUDY_SEGMENT"),
-                    df.columns.get_loc("HIERARCHY"),
-                    h,
-                )
-            if h >= 3:
-                varname_groups = sort_new_hierarchy2(
-                    varname_groups,
-                    hierarchy,
-                    df.columns.get_loc("STUDY_SEGMENT"),
-                    df.columns.get_loc("HIERARCHY"),
-                    h,
-                )
-            h += 1
-        # check if the key had changed
-        if not b:
-            break_boolean = True
+    
+    if not force_single_odm: # write in more than odm
+        break_boolean = False
+        # minimum of the hierarchy is 2 because 0 and 1 are SHIP and SHIPx (required)
+        h = 2
+        while not break_boolean:
+            b = False
+            # check the number of items and split by hierarchy
+            hierarchy = []
+            for key, group in varname_groups.items():
+                length = 0
+                for _, items in group.items():
+                    length = length + len(items)
+                    if length > 5700:
+                        b = True
+                        hierarchy.append(key)
+                        break
+            # new sort by hierarchy
+            if hierarchy:
+                if h == 2:
+                    varname_groups = sort_new_hierarchy(
+                        varname_groups,
+                        hierarchy,
+                        df.columns.get_loc("STUDY_SEGMENT"),
+                        df.columns.get_loc("HIERARCHY"),
+                        h,
+                    )
+                if h >= 3:
+                    varname_groups = sort_new_hierarchy2(
+                        varname_groups,
+                        hierarchy,
+                        df.columns.get_loc("STUDY_SEGMENT"),
+                        df.columns.get_loc("HIERARCHY"),
+                        h,
+                    )
+                h += 1
+            # check if the key had changed
+            if not b:
+                break_boolean = True
 
     """ For each Study Event create an ODM """
     calculate_odm(
@@ -908,7 +909,7 @@ def sort_all_lines_and_columns(df, first_sheet_name, all_sheets, file_name):
 
 
 # read the files
-def odm(file_path, file):
+def odm(file_path, file, force_single_odm):
     # load all sheets
     try:
         all_sheets = pd.read_excel(file_path, sheet_name=None)
@@ -921,7 +922,7 @@ def odm(file_path, file):
         }
         # calculate the odm xml
         sort_all_lines_and_columns(
-            first_sheet_df, first_sheet_name, remaining_sheets_dict, file
+            first_sheet_df, first_sheet_name, remaining_sheets_dict, file, force_single_odm
         )
     except Exception as e:
         print(f"Error while reading the file {file}: {e}")
@@ -929,12 +930,27 @@ def odm(file_path, file):
 
 # read path
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Bitte geben Sie den Pfad zu einer Excel-Datei an.")
+    parser = argparse.ArgumentParser(description="Convert XLSX → ODM")
+
+    parser.add_argument("file", help="Pfad zur XLSX-Datei")
+    parser.add_argument(
+        "--force_single_odm",
+        action="store_true",
+        help="Write all items in just one ODM (optional Flag)"
+    )
+
+    args = parser.parse_args()
+
+    file_path = args.file
+    force_single_odm = args.force_single_odm
+
+    if len(sys.argv) < 2:
+        print("Please add a path to the xlsx file.")
     else:
-        file_path = sys.argv[1]
+        #file_path = sys.argv[2]
+        #force_single_odm = sys.argv[1]
         # file name
         file_name = os.path.basename(file_path)
         # process odm
         print(file_name)
-        odm(file_path, file_name)
+        odm(file_path, file_name, force_single_odm)

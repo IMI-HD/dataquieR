@@ -16,6 +16,10 @@ $ python3 dataquieR2ODM.py /path/to/your/file.xlsx
 Windows
 $ python dataquieR2ODM.py "C:\path\to\your\file.xlsx"
 
+Start with flag force_single_odm:
+$ python3 dataquieR2ODM.py /Users/.../x0.xlsx --force_single_odm
+=> You want to have all items of the xlsx in just one ODM. No mather how big it will be.
+
 ## Generierte ODM-Dateien
 Diese landen im neuen Ordner "output" des gleichen Verzeichnisses wie das Python-Skript.
 
