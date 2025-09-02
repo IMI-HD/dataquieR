@@ -2,16 +2,16 @@
 The “dataquieR format” is a format for storing metadata for controlling automatic data quality assessments with the R package dataquieR. In this repositroy: Converting XLSX to ODM.
 
 ## Infos
-Missinglist-Tabellen werden als Codelists hinter allen andern Codelists angehängt.
+Missinglist-Tables are atteched as Codelists after all other Codelists.
 
-Aufteilung in StudyEvent, FormDef, etc. aufgrund der Spalte HIERARCHIE (danach DCE, STUDY_SEGMENT)
+Destributed in StudyEvent, FormDef, etc. because of the column HIERARCHIE (danach DCE, STUDY_SEGMENT)
 
-Maximal 5700 Variablen pro ODM-Datei
+Maximum of 5700 Variables of each ODM-file
 
 ## Zuordnung 
 VARNAMES/VAR_NAMES: ItemDef (Name)
 
-VALUE_LABELS: Codelists (Mehrfach verwendete VALUE_LABELS werden nur einmal als Codelist verwendet, aber mehrfach verlinkt)
+VALUE_LABELS: Codelists (Multiple uses of VALUE_LABELS are just saved once as Codelist, but linked each time)
 
 ## Starten des Programms
 Linux
@@ -28,8 +28,8 @@ $ python3 dataquieR2ODM.py /Users/.../x0.xlsx --force_single_odm
 
 => You want to have all items of the xlsx in just one ODM. No mather how big it will be.
 
-## Generierte ODM-Dateien
-Diese landen im neuen Ordner "output" des gleichen Verzeichnisses wie das Python-Skript.
+## Output: ODM-Files
+The output is placed in a new folder "output" in this path. 
 
 ## Warnings / Future Warnings
-Bitte ignorieren, das Skript funktioniert trotzdem.
+Please ignore, the script is working.
