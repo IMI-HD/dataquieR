@@ -15,8 +15,6 @@ from pathlib import Path
 Codelist represents the number for the OID, the list of names which
 use the codelist, and the codelist itself in english and german as a dictionary
 """
-
-
 class CodeList:
     def __init__(self, number, name, codelist_en, codelist_de):
         """
@@ -38,16 +36,16 @@ class CodeList:
         self.names.append(name)
 
 
-""" Ectracts the number of the label of the sheet from a missinglist """
-
-
+""" 
+Ectracts the number of the label of the sheet from a missinglist 
+"""
 def extract_number(missing_list_name):
     return missing_list_name.split("_")[-1]
 
 
-""" Check if the given codelist already exists """
-
-
+""" 
+Check if the given codelist already exists 
+"""
 def check_codelist(codelist_en, codelist_de, name, CodeLists):
     # search for existing codelist with the exact codelist
     for codelist in CodeLists:
@@ -59,9 +57,9 @@ def check_codelist(codelist_en, codelist_de, name, CodeLists):
     return False
 
 
-""" Split the inserts of the cell to have an array with numbers and strings """
-
-
+""" 
+Split the inserts of the cell to have an array with numbers and strings 
+"""
 def process_codelist(language):
     if pd.notna(language):
         CodeDict = {}
@@ -89,8 +87,6 @@ def process_codelist(language):
 """
 Save all the column names in a dictionary
 """
-
-
 def dictionary_column_names(list):
     dictionary = {}
     column = 0
@@ -104,8 +100,6 @@ def dictionary_column_names(list):
 """
 Extract the value from line and catch the type error None
 """
-
-
 def extract_from_line(line, dict_get):
     value = None
     try:
@@ -119,8 +113,6 @@ def extract_from_line(line, dict_get):
 """
 Check the datatypes if they are integers
 """
-
-
 def check_datatype(codelist):
     # check the keys and their Datatype
     datatype = "integer"
@@ -152,8 +144,6 @@ def check_datatype(codelist):
     <Alias Context="CODE_CLASS" Name="CODE_CLASS"/>
 </CodeList>
 """
-
-
 def calculate_missinglists(metadata, df, all_sheets, list_ml, ml):
     # iteration over the sheets from the second sheet on
     for sheet_name, df in all_sheets.items():
@@ -215,8 +205,6 @@ Beispiel:
 	<CodeListItem CodedValue="2">
 </CodeList>
 """
-
-
 # CodedValue = key
 # Decode = value (de/en)
 def calculate_codelists(CodeLists, group, varname_number, metadata):
@@ -321,8 +309,6 @@ Beispiel:
     <Alias Context="GROUP_VAR_DEVICE" Name="GROUP_VAR_DEVICE" </Alias>
 </ItemDef>
 """
-
-
 def calculate_itemdef(metadata, line, count_id, CodeLists, dictionary):
     # variables named
     # varname
@@ -461,8 +447,6 @@ Beispiel:
     ...
 </ItemGroupDef>
 """
-
-
 def calculate_itemgroups_event(metadata, group):
     count_id = 1
     count_ig = 1
@@ -523,8 +507,6 @@ Beispiel:
   </Study>
 </ODM>
 """
-
-
 # start calculating the odm
 def calculate_odm(
     df,
@@ -665,8 +647,6 @@ def calculate_odm(
 """
 Sort all lines and columns in a 2D-dictionary along HIERARCHY column
 """
-
-
 def sort_new_hierarchy(
     varname_groups, list_keys, study_segment_column, hierarchy_column, hierarchy
 ):
@@ -711,8 +691,6 @@ def sort_new_hierarchy(
 """
 Sort all lines and columns in a 2D-dictionary along HIERARCHY column
 """
-
-
 def sort_new_hierarchy2(
     varname_groups, list_keys, study_segment_column, hierarchy_column, hierarchy
 ):
@@ -754,8 +732,6 @@ Sort all lines and columns in a 2D-dictionary
 First dictionary is the character before the dot in VARNAMES (s2.sdlkhre -> s2) => StudyEvent
 Second dictionary is based on the entries in the column STUDY_SEGMENT => Formular
 """
-
-
 def sort_all_lines_and_columns(df, first_sheet_name, all_sheets, file_name, force_single_odm):
     # file_name
     name = file_name.split(".")[0]
@@ -905,9 +881,9 @@ def sort_all_lines_and_columns(df, first_sheet_name, all_sheets, file_name, forc
     )
 
 
-""" Extract sheets and names of the sheets """
-
-
+""" 
+Extract sheets and names of the sheets 
+"""
 # read the files
 def odm(file_path, file, force_single_odm):
     # load all sheets
