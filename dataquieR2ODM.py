@@ -10,25 +10,24 @@ import html
 from itertools import zip_longest
 import ast
 from pathlib import Path
+import hashlib
 
 """
 Codelist represents the number for the OID, the list of names which
-use the codelist, and the codelist itself in english and german as a dictionary
+use the codelist, and the codelist itself in English and German as a dictionary.
 """
-
-
 class CodeList:
     def __init__(self, number, name, codelist_en, codelist_de):
         """
         :param number: CodeList number (int)
-        :param names: A list of names (list of str)
-        :param codelist_en: A dictionary with the english codelist (dict)
-        :param codelist_de: A dictionary with the german codelist (dict)
+        :param name: A varname that uses this base codelist (str)
+        :param codelist_en: A dictionary with the English codelist (dict)
+        :param codelist_de: A dictionary with the German codelist (dict)
         """
         self.number = number
         self.names = [name]
-        self.codelist_en = codelist_en
-        self.codelist_de = codelist_de
+        self.codelist_en = codelist_en or {}
+        self.codelist_de = codelist_de or {}
 
     def add_name(self, name):
         """
@@ -38,16 +37,17 @@ class CodeList:
         self.names.append(name)
 
 
-""" Ectracts the number of the label of the sheet from a missinglist """
-
-
+""" 
+Extracts the number of the label of the sheet from a missing list.
+(Kept for compatibility; currently not used.)
+"""
 def extract_number(missing_list_name):
     return missing_list_name.split("_")[-1]
 
 
-""" Check if the given codelist already exists """
-
-
+""" 
+Check if the given codelist already exists.
+"""
 def check_codelist(codelist_en, codelist_de, name, CodeLists):
     # search for existing codelist with the exact codelist
     for codelist in CodeLists:
@@ -59,25 +59,23 @@ def check_codelist(codelist_en, codelist_de, name, CodeLists):
     return False
 
 
-""" Split the inserts of the cell to have an array with numbers and strings """
-
-
+""" 
+Split the inserts of the cell to have an array with numbers and strings.
+"""
 def process_codelist(language):
     if pd.notna(language):
         CodeDict = {}
         # Split the string with "|"
-        pairs = language.split("|")
+        pairs = str(language).split("|")
         for pair in pairs:
             # split the pairs with "=" at the first "="
+            # e.g. "1=<=2cm" => 1 = "<= 2cm"
             if "=" in pair:
-                # with pair.split('=', 1) catch the values with "=" inside
-                # e.g. "1=<=2cm" => 1 = "<= 2cm"
                 key, value = pair.split("=", 1)
                 # clear the key from spaces with strip
                 CodeDict[key.strip()] = value
             else:
-                # Add no key "-999999" to this string because there is just a string and no key
-                # Example: BKK Stadtwerke Hannover AG in s.xlsx and t.xlsx
+                # Add sentinel key "-999999" to strings without a key
                 CodeDict["-999999"] = pair.strip()
         # return the calculated dictionary
         return CodeDict
@@ -87,14 +85,12 @@ def process_codelist(language):
 
 
 """
-Save all the column names in a dictionary
+Save all the column names in a dictionary.
 """
-
-
-def dictionary_column_names(list):
+def dictionary_column_names(lst):
     dictionary = {}
     column = 0
-    for name in list:
+    for name in lst:
         dictionary[name] = column
         column += 1
 
@@ -102,10 +98,8 @@ def dictionary_column_names(list):
 
 
 """
-Extract the value from line and catch the type error None
+Extract the value from line and catch the type error None.
 """
-
-
 def extract_from_line(line, dict_get):
     value = None
     try:
@@ -117,43 +111,45 @@ def extract_from_line(line, dict_get):
 
 
 """
-Check the datatypes if they are integers
+Check the datatypes if they are integers.
 """
-
-
-def check_datatype(codelist):
+def check_datatype(codelist: CodeList):
     # check the keys and their Datatype
     datatype = "integer"
-    # codelist german
+    # codelist German
     if len(codelist.codelist_de) > 0:
         for key in codelist.codelist_de.keys():
             try:
                 int(key)
             except ValueError:
                 datatype = "string"
-    # codelist english
-    if len(codelist.codelist_en) > 0:
+                break
+    # codelist English
+    if datatype == "integer" and len(codelist.codelist_en) > 0:
         for key in codelist.codelist_en.keys():
             try:
                 int(key)
             except ValueError:
                 datatype = "string"
+                break
 
     return datatype
 
 
 """
+LEGACY (not called anymore after merge-to-union change)
+Create explicit Missing CodeLists (ML.*).
+
+Example:
 <CodeList OID="ML.number" Name="MISSING_LIST_TABLE" DataType="integer">
-	<CodeListItem CodedValue="CODED_VALUE">
-		<Decode>
-			<TranslatedText xml:lang="en">CODE_LABEL</TranslatedText>
-		</Decode>
-	</CodeListItem>
+    <CodeListItem CodedValue="CODED_VALUE">
+        <Decode>
+            <TranslatedText xml:lang="en">CODE_LABEL</TranslatedText>
+        </Decode>
+    </CodeListItem>
     <Alias Context="CODE_CLASS" Name="CODE_CLASS"/>
 </CodeList>
 """
-
-
 def calculate_missinglists(metadata, df, all_sheets, list_ml, ml):
     # iteration over the sheets from the second sheet on
     for sheet_name, df in all_sheets.items():
@@ -200,130 +196,182 @@ def calculate_missinglists(metadata, df, all_sheets, list_ml, ml):
             ml = ml + 1
 
 
-"""
-Creates the CodeLists for the ItemDefs
-Beispiel:
-<CodeList OID="CL.count_cl" Name="VARNAMES" DataType="integer">
-	<CodeListItem CodedValue="0">
-		<Decode>
-			<TranslatedText xml:lang="en">VALUE_LABELS</TranslatedText>
-			<TranslatedText xml:lang="de">VALUE_LABELS_DE</TranslatedText>
-		</Decode>
-	</CodeListItem>
-	<CodeListItem CodedValue="1">
-...
-	<CodeListItem CodedValue="2">
-</CodeList>
-"""
+def _stable_combo_oid(base_number: int, sheet: str | None) -> tuple[str, str]:
+    """
+    Build a stable, deterministic OID/Name for a (base, sheet) combination.
+    - No missing sheet: OID = CL.<base>
+    - With missing sheet: OID = CL.<base>__M_<sha10>
+    """
+    if not sheet:
+        return (f"CL.{base_number}", f"CL.{base_number}")
+    h = hashlib.sha256(f"{base_number}||{sheet}".encode("utf-8")).hexdigest()[:10]
+    return (f"CL.{base_number}__M_{h}", f"CL.{base_number}__WITH_{sheet}")
+
+################
+# Two-phase approach (compute mapping, then emit codelists)
+################
+
+def compute_final_ref_map(CodeLists, group, varname_number, all_sheets, missing_map):
+    """
+    Phase 1 (no writing): compute for each varname the final CodeListOID based on
+    (base CodeList.number, missing sheet). Returns:
+      - final_ref_map: dict varname -> CodeListOID
+      - combos_used:   set of (base.number, sheet_or_None) actually needed
+    """
+    final_ref_map = {}
+    combos_used = set()
+
+    # Map varname -> base CodeList
+    varname_to_base = {}
+    for cl in CodeLists:
+        for n in cl.names:
+            varname_to_base[str(n)] = cl
+
+    for _, lines in group.items():
+        for row in lines:
+            varname = str(row[varname_number])
+            base = varname_to_base.get(varname)
+            if not base:
+                continue
+            sheet = str(missing_map.get(varname)) if missing_map.get(varname) else None
+            oid, _ = _stable_combo_oid(base.number, sheet)
+            final_ref_map[varname] = oid
+            combos_used.add((base.number, sheet))
+    return final_ref_map, combos_used
 
 
-# CodedValue = key
-# Decode = value (de/en)
-def calculate_codelists(CodeLists, group, varname_number, metadata):
-    already_saved = []
-    for codelist in CodeLists:
-        for _, lines in group.items():
-            for line in lines:
-                if (
-                    line[varname_number] in codelist.names
-                    and codelist.number not in already_saved
-                ):
-                    already_saved.append(codelist.number)
-                    datatype = check_datatype(codelist)
-                    # codelist
-                    codelist_element = ET.SubElement(
-                        metadata,
-                        "CodeList",
-                        OID="CL." + str(codelist.number),
-                        Name="CL." + str(codelist.number),
-                        DataType=datatype,
+def emit_union_codelists(CodeLists, combos_used, metadata, all_sheets, missing_map):
+    """
+    Phase 2 (writing): emit exactly one CodeList per needed (base.number, sheet) combo.
+    - Base codes are emitted first (DE + optional EN decode).
+    - If a missing sheet is present, append its rows as CodeListItem with full alias set
+      and add Alias Context="ORIGIN_CODELIST" Name="<sheet>".
+    - Final DataType is promoted to 'string' if any missing CODE_VALUE is non-integer.
+    """
+    # Build lookup: base.number -> CodeList object
+    base_by_number = {cl.number: cl for cl in CodeLists}
+
+    def _promote_dtype(a: str, b: str) -> str:
+        # simple dominance: presence of 'string' yields 'string', else 'integer'
+        return "string" if (a == "string" or b == "string") else "integer"
+
+    for base_number, sheet in sorted(combos_used, key=lambda x: (x[0], str(x[1]))):
+        base = base_by_number.get(base_number)
+        if base is None:
+            continue
+
+        union_dtype = check_datatype(base)
+        oid, name = _stable_combo_oid(base_number, sheet)
+        cl_el = ET.SubElement(
+            metadata, "CodeList",
+            OID=oid, Name=name, DataType=union_dtype
+        )
+        used = set()
+
+        # 1) Emit base codes
+        if len(base.codelist_de) > 0:
+            for k, v in base.codelist_de.items():
+                item_el = ET.SubElement(cl_el, "CodeListItem", CodedValue=str(k))
+                dec = ET.SubElement(item_el, "Decode")
+                t_de = ET.SubElement(
+                    dec, "TranslatedText",
+                    attrib={"{http://www.w3.org/XML/1998/namespace}lang": "de"}
+                )
+                t_de.text = v
+                if k in base.codelist_en:
+                    t_en = ET.SubElement(
+                        dec, "TranslatedText",
+                        attrib={"{http://www.w3.org/XML/1998/namespace}lang": "en"}
                     )
-                    # if there is a codelist in german
-                    if len(codelist.codelist_de) > 0:
-                        for key, value in codelist.codelist_de.items():
-                            # codelist items
-                            codelist_item = ET.SubElement(
-                                codelist_element, "CodeListItem", CodedValue=key
-                            )
-                            decode = ET.SubElement(codelist_item, "Decode")
-                            translated_text_de = ET.SubElement(
-                                decode,
-                                "TranslatedText",
-                                attrib={
-                                    "{http://www.w3.org/XML/1998/namespace}lang": "de"
-                                },
-                            )
-                            translated_text_de.text = value
-                            # add the english translation
-                            if key in codelist.codelist_en:
-                                translated_text_en = ET.SubElement(
-                                    decode,
-                                    "TranslatedText",
-                                    attrib={
-                                        "{http://www.w3.org/XML/1998/namespace}lang": "en"
-                                    },
-                                )
-                                translated_text_en.text = codelist.codelist_en[key]
-                    # if there is only the english translation available
-                    elif len(codelist.codelist_en) > 0:
-                        for key, value in codelist.codelist_en.items():
-                            if key not in codelist.codelist_de:
-                                # codelist items
-                                codelist_item = ET.SubElement(
-                                    codelist_element, "CodeListItem", CodedValue=key
-                                )
-                                decode = ET.SubElement(codelist_item, "Decode")
-                                translated_text_en = ET.SubElement(
-                                    decode,
-                                    "TranslatedText",
-                                    attrib={
-                                        "{http://www.w3.org/XML/1998/namespace}lang": "en"
-                                    },
-                                )
-                                translated_text_en.text = value
-                    # no codelist available
-                    else:
+                    t_en.text = base.codelist_en[k]
+                used.add(str(k))
+        elif len(base.codelist_en) > 0:
+            for k, v in base.codelist_en.items():
+                item_el = ET.SubElement(cl_el, "CodeListItem", CodedValue=str(k))
+                dec = ET.SubElement(item_el, "Decode")
+                t_en = ET.SubElement(
+                    dec, "TranslatedText",
+                    attrib={"{http://www.w3.org/XML/1998/namespace}lang": "en"}
+                )
+                t_en.text = v
+                used.add(str(k))
+        # else: empty base list is allowed
+
+        # 2) Append missing codes if a sheet is specified
+        if sheet:
+            if sheet in all_sheets:
+                mdf = all_sheets[sheet]
+                mcols = {c: i for i, c in enumerate(mdf.columns)}
+                col_code = mcols.get("CODE_VALUE")
+                col_label = mcols.get("CODE_LABEL")
+
+                for _, mrow in mdf.iterrows():
+                    code = None if col_code is None else mrow.iloc[col_code]
+                    if pd.isna(code):
                         continue
+                    code = str(code)
+                    # Promote dtype if missing code is not integer
+                    try:
+                        int(code)
+                    except (TypeError, ValueError):
+                        union_dtype = _promote_dtype(union_dtype, "string")
 
-                    # Incomment if you want to print all names who use one codelist as Alias in the codelist in the xml
-                    # TODO: add count first for this
-                    """
-                    for varname in codelist.names:
-                        ET.SubElement(codelist_element, "Alias", Context="Name " + str(count), Name=str(varname))
-                        count += 1
-                    """
+                    if code in used:
+                        continue  # skip duplicates
 
+                    item_el = ET.SubElement(cl_el, "CodeListItem", CodedValue=code)
+                    dec = ET.SubElement(item_el, "Decode")
+                    txt = None if col_label is None else mrow.iloc[col_label]
+                    t_en = ET.SubElement(
+                        dec, "TranslatedText",
+                        attrib={"{http://www.w3.org/XML/1998/namespace}lang": "en"}
+                    )
+                    t_en.text = str(txt) if pd.notna(txt) else "Missing/Reason"
+
+                    # Add all columns as alias, then mark origin sheet
+                    for cname, cidx in mcols.items():
+                        v = mrow.iloc[cidx]
+                        if pd.notna(v):
+                            ET.SubElement(item_el, "Alias", Context=str(cname), Name=str(v))
+                    ET.SubElement(item_el, "Alias", Context="ORIGIN_CODELIST", Name=str(sheet))
+                    used.add(code)
+
+        # Persist final datatype (may have been promoted)
+        cl_el.set("DataType", union_dtype)
+
+###########
+# Itemdef
+###########
 
 """
-Creates the ItemDefs
-Beispiel:
+Creates the ItemDefs.
+
+Example (kept from your original comment, adapted to English heading):
 <ItemDef OID="I.count_id" Name="VARNAMES" DataType="DATA_TYPE">
     <Description>
         <TranslatedText xml:lang="en">NOTE</TranslatedText>
         <TranslatedText xml:lang="de">NOTE_DE</TranslatedText>
     </Description>
     <Question>
-		<TranslatedText xml:lang="en">LABEL</TranslatedText>
-		<TranslatedText xml:lang="de">LABEL_DE</TranslatedText>
-	</Question>
-	<CodeListRef CodeListOID="CL.count_cl"/>
-    <Alias Context="MISSING_LIST_TABLE" Name="MISSING_LIST_TABLE" </Alias>
-    <Alias Context="NOTE_TYPE" Name="NOTE_TYPE" </Alias>
-    <Alias Context="NOTE" Name="NOTE" </Alias>
-    <Alias Context="NOTE_DE" Name="NOTE_DE" </Alias>
-    <Alias Context="VALUE_LABELS" Name="VALUE_LABELS" </Alias>
-    <Alias Context="VALUE_LABELS_DE" Name="VALUE_LABELS_DE" </Alias>
-    <Alias Context="LONG_LABEL_DE" Name="LONG_LABEL_DE" </Alias>
-    <Alias Context="LONG_LABEL" Name="LONG_LABEL" </Alias>
-    <Alias Context="VARIABLE_ORDER" Name="VARIABLE_ORDER" </Alias>
-    <Alias Context="GROUP_VAR_OBSERVER" Name="GROUP_VAR_OBSERVER" </Alias>
-    <Alias Context="TIME_VAR" Name="TIME_VAR"</Alias>
-    <Alias Context="GROUP_VAR_DEVICE" Name="GROUP_VAR_DEVICE" </Alias>
+        <TranslatedText xml:lang="en">LABEL</TranslatedText>
+        <TranslatedText xml:lang="de">LABEL_DE</TranslatedText>
+    </Question>
+    <CodeListRef CodeListOID="CL.count_cl"/>
+    <Alias Context="MISSING_LIST_TABLE" Name="MISSING_LIST_TABLE" />
+    <Alias Context="NOTE_TYPE" Name="NOTE_TYPE" />
+    <Alias Context="NOTE" Name="NOTE" />
+    <Alias Context="NOTE_DE" Name="NOTE_DE" />
+    <Alias Context="VALUE_LABELS" Name="VALUE_LABELS" />
+    <Alias Context="VALUE_LABELS_DE" Name="VALUE_LABELS_DE" />
+    <Alias Context="LONG_LABEL_DE" Name="LONG_LABEL_DE" />
+    <Alias Context="LONG_LABEL" Name="LONG_LABEL" />
+    <Alias Context="VARIABLE_ORDER" Name="VARIABLE_ORDER" />
+    <Alias Context="GROUP_VAR_OBSERVER" Name="GROUP_VAR_OBSERVER" />
+    <Alias Context="TIME_VAR" Name="TIME_VAR"/>
+    <Alias Context="GROUP_VAR_DEVICE" Name="GROUP_VAR_DEVICE" />
 </ItemDef>
 """
-
-
-def calculate_itemdef(metadata, line, count_id, CodeLists, dictionary):
+def calculate_itemdef(metadata, line, count_id, CodeLists, dictionary, final_ref_map):
     # variables named
     # varname
     varname_number = 0
@@ -348,9 +396,7 @@ def calculate_itemdef(metadata, line, count_id, CodeLists, dictionary):
     note = extract_from_line(line, dictionary.get("NOTE", None))
     note_de = extract_from_line(line, dictionary.get("NOTE_DE", None))
     data_type = extract_from_line(line, dictionary.get("DATA_TYPE", None))
-    missing_table_list = extract_from_line(
-        line, dictionary.get("MISSING_LIST_TABLE", None)
-    )
+    # missing_table_list intentionally not used here (handled via final_ref_map)
 
     # itemdef
     itemdef = None
@@ -433,25 +479,35 @@ def calculate_itemdef(metadata, line, count_id, CodeLists, dictionary):
         )
         translatedtext.text = str(None)
 
-    # code list reference
-    for codelist in CodeLists:
-        # math the name in the codelist to add the reference
-        if varname in codelist.names:
-            ET.SubElement(
-                itemdef, "CodeListRef", CodeListOID="CL." + str(codelist.number)
-            )
-            break
-    # Alias
+    # CodeListRef: per-(base,missing) final OID
+    final_oid = final_ref_map.get(str(varname))
+    if final_oid:
+        ET.SubElement(
+            itemdef, "CodeListRef", CodeListOID=final_oid
+        )
+    else:
+        # Fallback legacy behavior
+        for codelist in CodeLists:
+            # match the name in the codelist to add the reference
+            if varname in codelist.names:
+                ET.SubElement(
+                    itemdef, "CodeListRef", CodeListOID="CL." + str(codelist.number)
+                )
+                break
+
+    # Alias (all columns in the source line)
     for context, number in dictionary.items():
-        if pd.notna(line[number]):
+        val = extract_from_line(line, number)
+        if pd.notna(val):
             ET.SubElement(
-                itemdef, "Alias", Context=str(context), Name=str(line[number])
+                itemdef, "Alias", Context=str(context), Name=str(val)
             )
 
 
 """
 Creates the ItemGroups
-Beispiel:
+
+Example:
 <ItemGroupDef OID="IG.count_ig" Name="s3" Repeating="No">
     <Description>
         <TranslatedText xml:lang="de">Item Group Nummer key</TranslatedText>
@@ -461,8 +517,6 @@ Beispiel:
     ...
 </ItemGroupDef>
 """
-
-
 def calculate_itemgroups_event(metadata, group):
     count_id = 1
     count_ig = 1
@@ -489,7 +543,7 @@ def calculate_itemgroups_event(metadata, group):
         )
         translatedtext.text = "Item Group " + str(key)
         # Item references
-        for line in values:
+        for _line in values:
             ET.SubElement(
                 itemgroupdef, "ItemRef", ItemOID="I." + str(count_id), Mandatory="No"
             )
@@ -500,7 +554,8 @@ def calculate_itemgroups_event(metadata, group):
 
 """
 Creates the ODM
-Beispiel:
+
+Example:
 <ODM xmlns="http://www.cdisc.org/ns/odm/v1.3" xmlns:ns2="http://www.w3.org/2000/09/xmldsig#" FileType="Snapshot" FileOID="Project s" CreationDateTime="2024-07-29T16:16:28.641067" ODMVersion="1.3.2" SourceSystem="OpenEDC">
   <Study OID="s">
     <GlobalVariables>
@@ -523,8 +578,6 @@ Beispiel:
   </Study>
 </ODM>
 """
-
-
 # start calculating the odm
 def calculate_odm(
     df,
@@ -536,19 +589,16 @@ def calculate_odm(
     dictionary_names,
     varname_number,
     first_sheet_name,
+    missing_map,
 ):
     # Study name
     name = file_name.split(".")[0]
-    # seperator
+    # separator
     separator = "---"
 
     """ Study Events """
     # go through all study events
     for key, group in varname_groups.items():
-        # count the missinglists
-        ml = 1
-        # count the codelists
-        cl = 0
 
         """ Root-Element """
         odm = ET.Element(
@@ -580,13 +630,13 @@ def calculate_odm(
             name + separator + first_sheet_name + string_column_names
         )  # save the name of the first sheet and the column names
 
-        """ Metadata, Study Event, Formular, Item Group """
+        """ Metadata, Study Event, Form, Item Group """
         metadata = ET.SubElement(
             study, "MetaDataVersion", OID="MDV.1", Name="MetaDataVersion"
         )
         protocol = ET.SubElement(metadata, "Protocol")
 
-        # create studyevents and formulars
+        # create studyevents and forms
         count_f = 1
         # get all studyevents with formrefs
         ET.SubElement(protocol, "StudyEventRef", StudyEventOID="SE.1", Mandatory="No")
@@ -624,28 +674,20 @@ def calculate_odm(
         # create itemgroups with refs
         calculate_itemgroups_event(metadata, group)
 
-        """ Items """
-        # calculate itemdefs
+        """ Phase 1: compute final mapping (no writing) """
+        final_ref_map, combos_used = compute_final_ref_map(
+            CodeLists, group, varname_number, all_sheets, missing_map
+        )
+
+        """ Items (ItemDef*) — MUST appear before CodeList* """
         count_id = 1
-        list_ml = []
         for _, values in group.items():
             for line in values:
-                # calculate the itemdefs with codelistrefs
-                calculate_itemdef(metadata, line, count_id, CodeLists, dictionary_names)
-                # add the needed missing list to the array
-                missing_table_list = extract_from_line(
-                    line, dictionary_names.get("MISSING_LIST_TABLE", None)
-                )
-                if missing_table_list not in list_ml:
-                    list_ml.append(missing_table_list)
+                calculate_itemdef(metadata, line, count_id, CodeLists, dictionary_names, final_ref_map)
                 count_id += 1
 
-        """ Codelists """
-        # calculate codelists
-        calculate_codelists(CodeLists, group, varname_number, metadata)
-
-        # calculate missinglists
-        calculate_missinglists(metadata, df, all_sheets, list_ml, ml)
+        """ Phase 2: emit CodeLists (CodeList*) after ItemDefs """
+        emit_union_codelists(CodeLists, combos_used, metadata, all_sheets, missing_map)
 
         """ XML """
         # Output Directory
@@ -663,10 +705,8 @@ def calculate_odm(
 
 
 """
-Sort all lines and columns in a 2D-dictionary along HIERARCHY column
+Sort all lines and columns in a 2D-dictionary along HIERARCHY column.
 """
-
-
 def sort_new_hierarchy(
     varname_groups, list_keys, study_segment_column, hierarchy_column, hierarchy
 ):
@@ -681,12 +721,12 @@ def sort_new_hierarchy(
                 studyevent = ""
                 if pd.notna(item[hierarchy_column]):
                     studyevent = item[hierarchy_column]
-                    list = item[hierarchy_column].split("|")
+                    parts = item[hierarchy_column].split("|")
                     # calculate the new key
-                    if len(list) > hierarchy:
+                    if len(parts) > hierarchy:
                         save = ""
                         count = 0
-                        for item_string in list:
+                        for item_string in parts:
                             save = save + item_string + "_"
                             if count == hierarchy:
                                 break
@@ -709,10 +749,8 @@ def sort_new_hierarchy(
 
 
 """
-Sort all lines and columns in a 2D-dictionary along HIERARCHY column
+Sort all lines and columns in a 2D-dictionary along HIERARCHY column (chunking).
 """
-
-
 def sort_new_hierarchy2(
     varname_groups, list_keys, study_segment_column, hierarchy_column, hierarchy
 ):
@@ -750,15 +788,14 @@ def sort_new_hierarchy2(
 
 
 """
-Sort all lines and columns in a 2D-dictionary
+Sort all lines and columns in a 2D-dictionary.
 First dictionary is the character before the dot in VARNAMES (s2.sdlkhre -> s2) => StudyEvent
-Second dictionary is based on the entries in the column STUDY_SEGMENT => Formular
+Second dictionary is based on the entries in the column STUDY_SEGMENT => Form
 """
-
-
 def sort_all_lines_and_columns(df, first_sheet_name, all_sheets, file_name, force_single_odm):
     # file_name
     name = file_name.split(".")[0]
+    missing_map = {}  # varname -> missing_sheet_name
 
     """ Column Names """
     # Save all column names for later and to reconstruct
@@ -799,22 +836,22 @@ def sort_all_lines_and_columns(df, first_sheet_name, all_sheets, file_name, forc
         varname = row.iloc[varname_number]
         # extract form name, e.g. s2
         # hierarchy and studyevent
-        save = list(row["HIERARCHY"].split("|"))
+        save = list(str(row["HIERARCHY"]).split("|"))
         string_save = save[0]
         for i in save:
             string_save = string_save + "_" + str(i)
         studyevent = string_save
         # dce
-        if pd.notna(row["DCE"]):
+        if pd.notna(row.get("DCE", None)):
             studyevent = row["DCE"]
         # hierarchy and study_segment
-        save = list(row["HIERARCHY"].split("|"))
+        save = list(str(row["HIERARCHY"]).split("|"))
         string_save = save[0]
         for i in save:
             string_save = string_save + "_" + str(i)
         study_segment = string_save
         # study_segment
-        if pd.notna(row["STUDY_SEGMENT"]):
+        if pd.notna(row.get("STUDY_SEGMENT", None)):
             study_segment = row["STUDY_SEGMENT"]
 
         # 2D dictionary for studyevent and formdef
@@ -829,30 +866,38 @@ def sort_all_lines_and_columns(df, first_sheet_name, all_sheets, file_name, forc
         """ Value Labels/Codelist """
         # first go through the process that splits the string into key-value-pairs
         # it returns a dictionary
-        english = None
-        german = None
+        english = {}
+        german = {}
         try:
             english = process_codelist(
                 row.iloc[dictionary_names.get("VALUE_LABELS", None)]
-            )
-        except:
-            continue
+            ) if dictionary_names.get("VALUE_LABELS", None) is not None else {}
+        except Exception:
+            english = {}
         try:
             german = process_codelist(
                 row.iloc[dictionary_names.get("VALUE_LABELS_DE", None)]
-            )
-        except:
-            continue
+            ) if dictionary_names.get("VALUE_LABELS_DE", None) is not None else {}
+        except Exception:
+            german = {}
+
         # Codelists
         if len(english) > 0 or len(german) > 0:
-            # just add the codelist if there isnt an exact codelist yet
+            # just add the codelist if there isn't an exact codelist yet
             if not check_codelist(english, german, varname, CodeLists):
                 # of course only append existing codelists (not nulls)
                 if pd.notna(english) or pd.notna(german):
                     CodeLists.append(CodeList(count_cl, varname, english, german))
                     count_cl += 1
-    
-    if not force_single_odm: # write in more than odm
+        
+        # Missing list name per varname
+        idx = dictionary_names.get("MISSING_LIST_TABLE", None)
+        missing_table_list_val = row.iloc[idx] if idx is not None else None
+        if pd.notna(missing_table_list_val):
+            # get varname (already available)
+            missing_map[str(varname)] = str(missing_table_list_val)
+
+    if not force_single_odm:  # write in more than one ODM if needed
         break_boolean = False
         # minimum of the hierarchy is 2 because 0 and 1 are SHIP and SHIPx (required)
         h = 2
@@ -902,12 +947,13 @@ def sort_all_lines_and_columns(df, first_sheet_name, all_sheets, file_name, forc
         dictionary_names,
         varname_number,
         first_sheet_name,
+        missing_map,
     )
 
 
-""" Extract sheets and names of the sheets """
-
-
+""" 
+Extract sheets and names of the sheets.
+"""
 # read the files
 def odm(file_path, file, force_single_odm):
     # load all sheets
@@ -932,11 +978,11 @@ def odm(file_path, file, force_single_odm):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert XLSX → ODM")
 
-    parser.add_argument("file", help="Pfad zur XLSX-Datei")
+    parser.add_argument("file", help="Path to the XLSX file")
     parser.add_argument(
         "--force_single_odm",
         action="store_true",
-        help="Write all items in just one ODM (optional Flag)"
+        help="Write all items in just one ODM (optional flag)"
     )
 
     args = parser.parse_args()
@@ -947,8 +993,6 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Please add a path to the xlsx file.")
     else:
-        #file_path = sys.argv[2]
-        #force_single_odm = sys.argv[1]
         # file name
         file_name = os.path.basename(file_path)
         # process odm
