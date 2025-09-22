@@ -584,7 +584,6 @@ def calculate_odm(
     all_sheets,
     file_name,
     varname_groups,
-    string_column_names,
     CodeLists,
     dictionary_names,
     varname_number,
@@ -626,9 +625,8 @@ def calculate_odm(
         ET.SubElement(global_variables, "StudyDescription").text = (
             "This example study aims at providing an overview of the capabilities of OpenEDC."
         )
-        ET.SubElement(global_variables, "ProtocolName").text = (
-            name + separator + first_sheet_name + string_column_names
-        )  # save the name of the first sheet and the column names
+        # Use file base name and first sheet for traceability, but without column names.
+        ET.SubElement(global_variables, "ProtocolName").text = f"{name}---{first_sheet_name}"
 
         """ Metadata, Study Event, Form, Item Group """
         metadata = ET.SubElement(
@@ -691,7 +689,7 @@ def calculate_odm(
 
         """ XML """
         # Output Directory
-        output_dir = Path("output")
+        output_dir = Path("../output")
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # create the name for the xml
@@ -797,19 +795,8 @@ def sort_all_lines_and_columns(df, first_sheet_name, all_sheets, file_name, forc
     name = file_name.split(".")[0]
     missing_map = {}  # varname -> missing_sheet_name
 
-    """ Column Names """
-    # Save all column names for later and to reconstruct
-    column = 0
-    separator = "---"
-    string_column_names = separator
+    # Build a dictionary of the column names with their column number
     column_names = list(df.columns)
-    for column_name in column_names:
-        string_column_names = (
-            string_column_names + str(column_name) + "." + str(column) + separator
-        )
-        column += 1
-    string_column_names = string_column_names[:-1]
-    # create a dictionary of the column names with their column number
     dictionary_names = dictionary_column_names(column_names)
 
     """ Variables """
@@ -942,7 +929,6 @@ def sort_all_lines_and_columns(df, first_sheet_name, all_sheets, file_name, forc
         all_sheets,
         file_name,
         varname_groups,
-        string_column_names,
         CodeLists,
         dictionary_names,
         varname_number,
