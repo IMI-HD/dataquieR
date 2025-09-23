@@ -883,6 +883,13 @@ def sort_all_lines_and_columns(df, first_sheet_name, all_sheets, file_name, forc
         if pd.notna(missing_table_list_val):
             # get varname (already available)
             missing_map[str(varname)] = str(missing_table_list_val)
+            # Ensure there is a base CodeList for this varname even if VALUE_LABELS are empty.
+            # This allows emitting a CodeList that consists solely of missing codes.
+            varname_str = str(varname)
+            has_base = any(varname_str in cl.names for cl in CodeLists)
+            if not has_base:
+                CodeLists.append(CodeList(count_cl, varname_str, {}, {}))
+                count_cl += 1
 
     if not force_single_odm:  # write in more than one ODM if needed
         break_boolean = False
